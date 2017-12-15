@@ -9,6 +9,7 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.ParseException;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.*;
 
@@ -22,7 +23,7 @@ public class DataSource {
     //---------------------------------------------------
 
     private DataSource(String configFile) throws IOException, ParseException {
-        config = JsonLoader.load(configFile);
+        config = JsonLoader.load(configFile, StandardCharsets.UTF_8); // hardcoded charset!
         pool = new LinkedList<>();
     }
 
@@ -130,21 +131,13 @@ public class DataSource {
         return executeUpdate(sql, colVals);
     }
 
-    public Map<String, Object> selectRow(String tableName, Map<String, Object> filter) throws SQLException {
-        List<String> colNames = new ArrayList<>();
-        List<Object> colVals = new ArrayList<>();
-
-        for (Map.Entry<String, Object> e : filter.entrySet()) {
-            colNames.add(e.getKey() + " = ?");
-            colVals.add(e.getValue());
-        }
-
-        String sql = String.format("SELECT * FROM %s WHERE %s LIMIT 1",
+    public Map<String, Object> selectRow(String tableName, Pair<String, Object> id) throws SQLException {
+        String sql = String.format("SELECT * FROM %s WHERE %s = ? LIMIT 1",
                 tableName,
-                String.join(" AND ", colNames)
+                id.getKey()
         );
 
-        List<Map<String, Object>> rows = executeSelect(sql, colVals);
+        List<Map<String, Object>> rows = executeSelect(sql, Collections.singletonList(id.getValue()));
 
         if (!rows.isEmpty()) {
             return rows.get(0);
@@ -240,7 +233,8 @@ public class DataSource {
         if (rows != null) {
             Map<String, Object> row = rows.get(0);
             if (row != null) {
-                return row.entrySet().stream().findFirst(); // LinkedHashMap feature
+                Map.Entry<String, Object> first = row.entrySet().iterator().next();
+                return first.getValue();
             }
         }
         return null;
