@@ -1,8 +1,9 @@
-package library;
+package library.database;
 
 import com.mysql.jdbc.exceptions.jdbc4.CommunicationsException;
 import com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException;
 import javafx.util.Pair;
+import library.loaders.JsonLoader;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.ParseException;
@@ -11,23 +12,23 @@ import java.io.IOException;
 import java.sql.*;
 import java.util.*;
 
-public class Jdbc {
+public class DataSource {
 
-    private static Jdbc instance;
+    private static DataSource instance;
     private JSONObject config;
     private LinkedList<Connection> pool;
     private int connTimeout = 5;
 
     //---------------------------------------------------
 
-    private Jdbc(String configFile) throws IOException, ParseException {
+    private DataSource(String configFile) throws IOException, ParseException {
         config = JsonLoader.load(configFile);
         pool = new LinkedList<>();
     }
 
-    public static Jdbc getInstance(String configFile) throws IOException, ParseException {
+    public static DataSource getInstance(String configFile) throws IOException, ParseException {
         if (instance == null) {
-            instance = new Jdbc(configFile);
+            instance = new DataSource(configFile);
         }
         return instance;
     }
@@ -80,7 +81,7 @@ public class Jdbc {
 
     //---------------------------------------------------
 
-    public long insertRow(String tableName, HashMap<String, Object> vals) throws SQLException {
+    public long insertRow(String tableName, Map<String, Object> vals) throws SQLException {
         List<String> colNames = new ArrayList<>();
         List<Object> colVals = new ArrayList<>();
 
@@ -97,7 +98,7 @@ public class Jdbc {
         return executeInsert(sql, colVals);
     }
 
-    public int updateRow(String tableName, Pair<String, Object> id, HashMap<String, Object> vals) throws SQLException {
+    public int updateRow(String tableName, Pair<String, Object> id, Map<String, Object> vals) throws SQLException {
         List<String> colNames = new ArrayList<>();
         List<Object> colVals = new ArrayList<>();
 
@@ -129,7 +130,7 @@ public class Jdbc {
         return executeUpdate(sql, colVals);
     }
 
-    public Map<String, Object> selectRow(String tableName, HashMap<String, Object> filter) throws SQLException {
+    public Map<String, Object> selectRow(String tableName, Map<String, Object> filter) throws SQLException {
         List<String> colNames = new ArrayList<>();
         List<Object> colVals = new ArrayList<>();
 
@@ -206,7 +207,7 @@ public class Jdbc {
     public List<Map<String, Object>> executeSelect(String sql, List<Object> vals) throws SQLException {
         Connection conn = getConnection();
         Boolean badConnection = false;
-        List<Map<String, Object>> rows = new LinkedList<>(); // LinkedList for same order as retrieved
+        List<Map<String, Object>> rows = new LinkedList<>(); // keep rows ordered
         try (PreparedStatement stmnt = conn.prepareStatement(sql)) {
             if (vals != null && !vals.isEmpty()) {
                 for (int i = 0; i < vals.size(); i++) {
@@ -217,7 +218,7 @@ public class Jdbc {
             ResultSetMetaData meta = rs.getMetaData();
             Map<String, Object> row;
             while (rs.next()) {
-                row = new HashMap<>();
+                row = new LinkedHashMap<>(); // keep columns ordered
                 for (int i = 0; i < meta.getColumnCount(); i++) {
                     row.put(meta.getColumnName(i + 1), rs.getObject(i + 1));
                 }
@@ -233,5 +234,15 @@ public class Jdbc {
         }
         return rows;
     }
-}
 
+    public Object executeScalar(String sql, List<Object> vals) throws SQLException {
+        List<Map<String, Object>> rows = executeSelect(sql, vals);
+        if (rows != null) {
+            Map<String, Object> row = rows.get(0);
+            if (row != null) {
+                return row.entrySet().stream().findFirst(); // LinkedHashMap feature
+            }
+        }
+        return null;
+    }
+}
