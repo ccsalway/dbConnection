@@ -1,88 +1,58 @@
-package library.database;
+package library;
 
 import com.mysql.jdbc.exceptions.jdbc4.CommunicationsException;
 import com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException;
 import javafx.util.Pair;
-import library.loaders.JsonLoader;
-import org.json.simple.JSONArray;
-import org.json.simple.JSONObject;
-import org.json.simple.parser.ParseException;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.*;
 
-public class DataSource {
+public class DataConnection implements AutoCloseable {
 
-    private static DataSource instance;
-    private JSONObject config;
-    private LinkedList<Connection> pool;
-    private int connTimeout = 5;
+    private ConnectionPool pool;
+    private Connection conn;
+    private int connTimeout;
+    private boolean requeue = true;
 
-    //---------------------------------------------------
-
-    private DataSource(String configFile) throws IOException, ParseException {
-        config = JsonLoader.load(configFile, StandardCharsets.UTF_8); // hardcoded charset!
-        pool = new LinkedList<>();
+    DataConnection(ConnectionPool pool, int connTimeout) throws SQLException {
+        this.pool = pool;
+        this.connTimeout = connTimeout;
+        checkConnection();
     }
 
-    public static DataSource getInstance(String configFile) throws IOException, ParseException {
-        if (instance == null) {
-            instance = new DataSource(configFile);
+    DataConnection(ConnectionPool pool) throws SQLException {
+        this(pool, 5);
+    }
+
+    public void setAutoCommit(boolean autoCommit) throws SQLException {
+        conn.setAutoCommit(autoCommit);
+    }
+
+    private boolean isConnectionValid() throws SQLException {
+        return conn != null && !conn.isClosed() && conn.isValid(connTimeout);
+    }
+
+    private void checkConnection() throws SQLException {
+        if (!isConnectionValid()) {
+            conn = pool.getConnection(connTimeout);
         }
-        return instance;
     }
 
-    //---------------------------------------------------
-
-    private Connection _getConnection() {
-        JSONArray servers = (JSONArray) config.get("servers");
-        for (int i = 0; i < servers.size(); i++) {
-            try {
-                JSONObject server = (JSONObject) servers.get(i);
-
-                String driver = server.get("driver").toString();
-                String dsn = server.get("dsn").toString();
-                String options = server.get("options").toString();
-                String username = server.get("username").toString();
-                String password = server.get("password").toString();
-
-                if (options != null) {
-                    dsn += "?" + options;
-                }
-
-                Class.forName(driver);
-                return DriverManager.getConnection(dsn, username, password);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-        return null;
+    public void setRequeue(boolean requeue) {
+        this.requeue = requeue;
     }
 
-    private synchronized Connection getConnection() throws SQLException {
-        Connection conn = pool.pollFirst();
-        if (conn == null || !conn.isValid(connTimeout)) {
-            conn = _getConnection();
-            if (conn == null) {
-                throw new SQLException("err.sql_communication_exception");
-            }
-        }
-        return conn;
+    public int getPoolSize() {
+        return pool.poolSize();
     }
 
-    private synchronized void putConnection(Connection conn) {
-        pool.add(conn);
-    }
-
-    public int poolCount() {
-        return pool.size();
+    public void setReadOnly(boolean state) throws SQLException {
+        conn.setReadOnly(state);
     }
 
     //---------------------------------------------------
 
-    public long insertRow(String tableName, Map<String, Object> vals) throws SQLException {
+    public Long insertRow(String tableName, Map<String, Object> vals) throws SQLException {
         List<String> colNames = new ArrayList<>();
         List<Object> colVals = new ArrayList<>();
 
@@ -99,7 +69,7 @@ public class DataSource {
         return executeInsert(sql, colVals);
     }
 
-    public int updateRow(String tableName, Pair<String, Object> id, Map<String, Object> vals) throws SQLException {
+    public boolean updateRow(String tableName, Pair<String, Object> id, Map<String, Object> vals) throws SQLException {
         List<String> colNames = new ArrayList<>();
         List<Object> colVals = new ArrayList<>();
 
@@ -116,10 +86,10 @@ public class DataSource {
                 id.getKey()
         );
 
-        return executeUpdate(sql, colVals);
+        return executeUpdate(sql, colVals) == 1;
     }
 
-    public int deleteRow(String tableName, Pair<String, Object> id) throws SQLException {
+    public boolean deleteRow(String tableName, Pair<String, Object> id) throws SQLException {
         String sql = String.format("DELETE FROM %s WHERE %s = ? LIMIT 1",  // Nb. only updates 1 row (faster)
                 tableName,
                 id.getKey()
@@ -128,7 +98,7 @@ public class DataSource {
         List<Object> colVals = new ArrayList<>();
         colVals.add(id.getValue());
 
-        return executeUpdate(sql, colVals);
+        return executeUpdate(sql, colVals) == 1;
     }
 
     public Map<String, Object> selectRow(String tableName, Pair<String, Object> id) throws SQLException {
@@ -148,15 +118,14 @@ public class DataSource {
     //---------------------------------------------------
 
     public long executeInsert(String sql, List<Object> vals) throws SQLException {
-        Connection conn = getConnection();
-        Boolean badConnection = false;
+        conn.setReadOnly(false);
         try (PreparedStatement stmnt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             if (vals != null && !vals.isEmpty()) {
                 for (int i = 0; i < vals.size(); i++) {
                     stmnt.setObject(i + 1, vals.get(i));
                 }
             }
-            if (!stmnt.execute()) {
+            if (!stmnt.execute()) { // false if the first result is an update count or there is no result
                 try (ResultSet generatedKeys = stmnt.getGeneratedKeys()) {
                     if (generatedKeys.next()) {
                         return generatedKeys.getLong(1);
@@ -164,19 +133,14 @@ public class DataSource {
                 }
             }
         } catch (CommunicationsException | MySQLNonTransientConnectionException e) {
-            badConnection = true;
+            requeue = false;
             throw e;
-        } finally {
-            if (!badConnection) {
-                putConnection(conn);
-            }
         }
         return -1L;
     }
 
     public int executeUpdate(String sql, List<Object> vals) throws SQLException {
-        Boolean badConnection = false;
-        Connection conn = getConnection();
+        conn.setReadOnly(false);
         try (PreparedStatement stmnt = conn.prepareStatement(sql)) {
             if (vals != null && !vals.isEmpty()) {
                 for (int i = 0; i < vals.size(); i++) {
@@ -187,19 +151,18 @@ public class DataSource {
                 return stmnt.getUpdateCount();
             }
         } catch (CommunicationsException | MySQLNonTransientConnectionException e) {
-            badConnection = true;
+            requeue = false;
             throw e;
-        } finally {
-            if (!badConnection) {
-                putConnection(conn);
-            }
         }
         return -1;
     }
 
+    public int executeDelete(String sql, List<Object> vals) throws SQLException {
+        return executeUpdate(sql, vals);
+    }
+
     public List<Map<String, Object>> executeSelect(String sql, List<Object> vals) throws SQLException {
-        Connection conn = getConnection();
-        Boolean badConnection = false;
+        conn.setReadOnly(true);
         List<Map<String, Object>> rows = new LinkedList<>(); // keep rows ordered
         try (PreparedStatement stmnt = conn.prepareStatement(sql)) {
             if (vals != null && !vals.isEmpty()) {
@@ -218,12 +181,8 @@ public class DataSource {
                 rows.add(row);
             }
         } catch (CommunicationsException | MySQLNonTransientConnectionException e) {
-            badConnection = true;
+            requeue = false;
             throw e;
-        } finally {
-            if (!badConnection) {
-                putConnection(conn);
-            }
         }
         return rows;
     }
@@ -239,4 +198,30 @@ public class DataSource {
         }
         return null;
     }
+
+    //---------------------------------------------------
+
+    public void rollback() throws SQLException {
+        conn.rollback();
+    }
+
+    public void commit() throws SQLException {
+        conn.commit();
+    }
+
+    @Override
+    public void close() throws SQLException {
+        if (isConnectionValid()) {
+            if (requeue) {
+                if (!conn.getAutoCommit()) {
+                    conn.rollback();
+                }
+                conn.setAutoCommit(true); // default setting
+                pool.putConnection(conn);
+            } else {
+                conn.close();
+            }
+        }
+    }
+
 }
