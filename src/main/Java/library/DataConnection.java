@@ -11,31 +11,23 @@ public class DataConnection implements AutoCloseable {
 
     private ConnectionPool pool;
     private Connection conn;
-    private int connTimeout;
     private boolean requeue = true;
 
-    DataConnection(ConnectionPool pool, int connTimeout) throws SQLException {
+    public DataConnection(ConnectionPool pool) throws SQLException {
         this.pool = pool;
-        this.connTimeout = connTimeout;
-        checkConnection();
+        setConnection();
     }
 
-    DataConnection(ConnectionPool pool) throws SQLException {
-        this(pool, 5);
+    public Connection getConnection() {
+        return conn;
+    }
+
+    private void setConnection() throws SQLException {
+        conn = pool.getConnection();
     }
 
     public void setAutoCommit(boolean autoCommit) throws SQLException {
         conn.setAutoCommit(autoCommit);
-    }
-
-    private boolean isConnectionValid() throws SQLException {
-        return conn != null && !conn.isClosed() && conn.isValid(connTimeout);
-    }
-
-    private void checkConnection() throws SQLException {
-        if (!isConnectionValid()) {
-            conn = pool.getConnection(connTimeout);
-        }
     }
 
     public void setRequeue(boolean requeue) {
@@ -46,8 +38,8 @@ public class DataConnection implements AutoCloseable {
         return pool.poolSize();
     }
 
-    public void setReadOnly(boolean state) throws SQLException {
-        conn.setReadOnly(state);
+    public boolean isValid() throws SQLException {
+        return pool.isConnectionValid(conn);
     }
 
     //---------------------------------------------------
@@ -66,7 +58,7 @@ public class DataConnection implements AutoCloseable {
                 String.join(",", colNames),
                 String.join(",", Collections.nCopies(colNames.size(), "?")));
 
-        return executeInsert(sql, colVals);
+        return nativeInsert(sql, colVals);
     }
 
     public boolean updateRow(String tableName, Pair<String, Object> id, Map<String, Object> vals) throws SQLException {
@@ -86,7 +78,7 @@ public class DataConnection implements AutoCloseable {
                 id.getKey()
         );
 
-        return executeUpdate(sql, colVals) == 1;
+        return nativeUpdate(sql, colVals) == 1;
     }
 
     public boolean deleteRow(String tableName, Pair<String, Object> id) throws SQLException {
@@ -98,7 +90,7 @@ public class DataConnection implements AutoCloseable {
         List<Object> colVals = new ArrayList<>();
         colVals.add(id.getValue());
 
-        return executeUpdate(sql, colVals) == 1;
+        return nativeUpdate(sql, colVals) == 1;
     }
 
     public Map<String, Object> selectRow(String tableName, Pair<String, Object> id) throws SQLException {
@@ -107,7 +99,7 @@ public class DataConnection implements AutoCloseable {
                 id.getKey()
         );
 
-        List<Map<String, Object>> rows = executeSelect(sql, Collections.singletonList(id.getValue()));
+        List<Map<String, Object>> rows = nativeSelect(sql, Collections.singletonList(id.getValue()));
 
         if (!rows.isEmpty()) {
             return rows.get(0);
@@ -117,7 +109,7 @@ public class DataConnection implements AutoCloseable {
 
     //---------------------------------------------------
 
-    public long executeInsert(String sql, List<Object> vals) throws SQLException {
+    public long nativeInsert(String sql, List<Object> vals) throws SQLException {
         conn.setReadOnly(false);
         try (PreparedStatement stmnt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             if (vals != null && !vals.isEmpty()) {
@@ -139,7 +131,7 @@ public class DataConnection implements AutoCloseable {
         return -1L;
     }
 
-    public int executeUpdate(String sql, List<Object> vals) throws SQLException {
+    public int nativeUpdate(String sql, List<Object> vals) throws SQLException {
         conn.setReadOnly(false);
         try (PreparedStatement stmnt = conn.prepareStatement(sql)) {
             if (vals != null && !vals.isEmpty()) {
@@ -157,11 +149,11 @@ public class DataConnection implements AutoCloseable {
         return -1;
     }
 
-    public int executeDelete(String sql, List<Object> vals) throws SQLException {
-        return executeUpdate(sql, vals);
+    public int nativeDelete(String sql, List<Object> vals) throws SQLException {
+        return nativeUpdate(sql, vals);
     }
 
-    public List<Map<String, Object>> executeSelect(String sql, List<Object> vals) throws SQLException {
+    public List<Map<String, Object>> nativeSelect(String sql, List<Object> vals) throws SQLException {
         conn.setReadOnly(true);
         List<Map<String, Object>> rows = new LinkedList<>(); // keep rows ordered
         try (PreparedStatement stmnt = conn.prepareStatement(sql)) {
@@ -187,8 +179,12 @@ public class DataConnection implements AutoCloseable {
         return rows;
     }
 
-    public Object executeScalar(String sql, List<Object> vals) throws SQLException {
-        List<Map<String, Object>> rows = executeSelect(sql, vals);
+    public List<Map<String, Object>> nativeSelect(String sql) throws SQLException {
+        return nativeSelect(sql, new LinkedList<>());
+    }
+
+    public Object scalar(String sql, List<Object> vals) throws SQLException {
+        List<Map<String, Object>> rows = nativeSelect(sql, vals);
         if (rows != null) {
             Map<String, Object> row = rows.get(0);
             if (row != null) {
@@ -211,17 +207,17 @@ public class DataConnection implements AutoCloseable {
 
     @Override
     public void close() throws SQLException {
-        if (isConnectionValid()) {
+        if (isValid()) {
             if (requeue) {
                 if (!conn.getAutoCommit()) {
                     conn.rollback();
+                    conn.setAutoCommit(true); // default setting
                 }
-                conn.setAutoCommit(true); // default setting
                 pool.putConnection(conn);
             } else {
                 conn.close();
+                conn = null;  // ensures no settings are passed on
             }
         }
     }
-
 }

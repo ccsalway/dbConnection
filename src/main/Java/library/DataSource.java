@@ -7,12 +7,18 @@ public class DataSource {
 
     private ConnectionPool pool = new ConnectionPool();
 
+    public DataSource() {}
+
+    public DataSource(Properties properties) {
+        this.pool.setProperties(properties);
+    }
+
     public void setProperties(Properties properties) {
         this.pool.setProperties(properties);
     }
 
-    public DataConnection getConnection(int timeout) throws SQLException {
-        return new DataConnection(this.pool, timeout);
+    public ConnectionPool getPool() {
+        return pool;
     }
 
     public DataConnection getConnection() throws SQLException {
