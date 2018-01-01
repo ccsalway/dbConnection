@@ -7,12 +7,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
-public class ObjectMapper<T> {
+public class DataMapper<T> {
 
     private Class clazz;
     private Map<String, Field> fields = new HashMap<>();
 
-    public ObjectMapper(Class clazz) {
+    public DataMapper(Class clazz) {
         this.clazz = clazz;
 
         List<Field> fieldList = Arrays.asList(clazz.getDeclaredFields());

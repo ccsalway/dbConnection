@@ -3,7 +3,7 @@ import javafx.util.Pair;
 import library.DataConnection;
 import library.DataSource;
 import library.Loaders;
-import library.ObjectMapper;
+import library.DataMapper;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -39,11 +39,11 @@ public class Main {
             try (DataConnection conn = ds1.getConnection()) {
 
                 // create an objectmapper
-                ObjectMapper<Product> objectMapper = new ObjectMapper<>(Product.class);
+                DataMapper<Product> dataMapper = new DataMapper<>(Product.class);
 
                 // fetch a row
                 List<Map<String, Object>> rows = conn.nativeSelect("SELECT * FROM products");
-                List<Product> products = objectMapper.map(rows);
+                List<Product> products = dataMapper.map(rows);
 
                 // display the rows
                 System.out.println(rows);
