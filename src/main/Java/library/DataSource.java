@@ -5,17 +5,15 @@ import java.util.Properties;
 
 public class DataSource {
 
-    private ConnectionPool pool = new ConnectionPool();
+    private ConnectionPool pool;
 
-    public DataSource() {}
+    //------------------------------
 
-    public DataSource(Properties properties) {
-        this.pool.setProperties(properties);
+    public DataSource(Properties properties) throws SQLException {
+        this.pool = new ConnectionPool(properties);
     }
 
-    public void setProperties(Properties properties) {
-        this.pool.setProperties(properties);
-    }
+    //------------------------------
 
     public ConnectionPool getPool() {
         return pool;

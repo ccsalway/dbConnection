@@ -195,6 +195,10 @@ public class DataConnection implements AutoCloseable {
         return null;
     }
 
+    public Object scalar(String sql) throws SQLException {
+        return scalar(sql, new LinkedList<>());
+    }
+
     //---------------------------------------------------
 
     public void rollback() throws SQLException {
@@ -207,17 +211,8 @@ public class DataConnection implements AutoCloseable {
 
     @Override
     public void close() throws SQLException {
-        if (isValid()) {
-            if (requeue) {
-                if (!conn.getAutoCommit()) {
-                    conn.rollback();
-                    conn.setAutoCommit(true); // default setting
-                }
-                pool.putConnection(conn);
-            } else {
-                conn.close();
-                conn = null;  // ensures no settings are passed on
-            }
-        }
+        pool.putConnection(conn, requeue);
+        conn = null;
     }
+
 }

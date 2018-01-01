@@ -1,12 +1,14 @@
+import entity.Product;
 import javafx.util.Pair;
 import library.DataConnection;
 import library.DataSource;
+import library.Loaders;
+import library.ObjectMapper;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 
 /**
  * See @Test for examples
@@ -14,22 +16,19 @@ import java.util.Properties;
 public class Main {
 
     // you can have multiple datasources
-    private static final DataSource ds1 = new DataSource();
-    private static final DataSource ds2 = new DataSource();
+    private static DataSource ds1;
+    private static DataSource ds2;
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, SQLException {
 
         // load properties into datasource
-        Properties properties = new Properties();
-        try (InputStream stream = Main.class.getResourceAsStream("application.properties")) {
-            properties.load(stream);
-            ds1.setProperties(properties);
-        }
+        ds1 = new DataSource(Loaders.properties("datasource1.properties"));
+        ds2 = new DataSource(Loaders.properties("datasource2.properties"));
 
         // simulate load
-        for (int i = 0; i < 10; i++) {
-            new runner().start();
-        }
+        //for (int i = 0; i < 100; i++) {
+        new runner().start();
+        //}
     }
 
     static class runner extends Thread {
@@ -39,17 +38,52 @@ public class Main {
             // connect to database (autocloses)
             try (DataConnection conn = ds1.getConnection()) {
 
-                // fetch a row
-                Map<String, Object> row = conn.selectRow("tableName", new Pair<>("id", 1));
+                // create an objectmapper
+                ObjectMapper<Product> objectMapper = new ObjectMapper<>(Product.class);
 
-                // display the row
-                System.out.println(row);
+                // fetch a row
+                List<Map<String, Object>> rows = conn.nativeSelect("SELECT * FROM products");
+                List<Product> products = objectMapper.map(rows);
+
+                // display the rows
+                System.out.println(rows);
+
+                // display it as products
+                for (Product prod : products) {
+                    System.out.println(prod);
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            // connect to second database
+            try (DataConnection conn = ds2.getConnection()) {
+
+                // do something with second datasource
+
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+
+            // connect to both at the same time
+            try (DataConnection conn1 = ds1.getConnection()) {
+
+                // access to conn1
+
+                try (DataConnection conn2 = ds2.getConnection()) {
+
+                    // access to conn1 and conn2
+                    conn1.insertRow("destTable", conn2.selectRow("srcTable", new Pair<>("id", 1)));
+
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
 
             } catch (SQLException e) {
                 e.printStackTrace();
             }
         }
-
     }
 
 }

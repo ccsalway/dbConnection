@@ -32,7 +32,7 @@ class DataSourceTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws SQLException {
         ds = new DataSource(properties);
     }
 

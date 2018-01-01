@@ -11,15 +11,27 @@ public class ConnectionPool {
     private LinkedList<Connection> pool;
     private Properties properties;
     private int connTimeout = 5;
+    private int initPoolSize = 5;
 
-    public ConnectionPool() {
+    public ConnectionPool(Properties properties) throws SQLException {
         this.pool = new LinkedList<>();
+        this.properties = properties;
+        assignProperties();
+        initPool();
     }
 
-    public void setProperties(Properties properties) {
-        this.properties = properties;
+    public void assignProperties() {
         if (properties.containsKey("datasource.connectTimeout")) {
             connTimeout = Integer.parseInt(properties.getProperty("datasource.connectTimeout"));
+        }
+        if (properties.containsKey("datasource.initPoolSize")) {
+            initPoolSize = Integer.parseInt(properties.getProperty("datasource.initPoolSize"));
+        }
+    }
+
+    public void initPool() throws SQLException {
+        for (int i = 0; i < initPoolSize; i++) {
+            putConnection(newConnection(), true);
         }
     }
 
@@ -36,13 +48,9 @@ public class ConnectionPool {
             Class.forName(properties.getProperty("datasource.driver"));
 
             Properties props = new Properties();
-
-            if (properties.containsKey("datasource.connectTimeout")) {
-                props.setProperty("connectTimeout", properties.getProperty("datasource.connectTimeout"));
-            }
-
-            props.put("user", properties.getProperty("datasource.username"));
-            props.put("password", properties.getProperty("datasource.password"));
+            props.setProperty("connectTimeout", String.valueOf(connTimeout * 1000)); // milliseconds
+            props.setProperty("user", properties.getProperty("datasource.username"));
+            props.setProperty("password", properties.getProperty("datasource.password"));
 
             //jdbc:mysql
             //jdbc:mysql:loadbalance
@@ -56,14 +64,22 @@ public class ConnectionPool {
 
     public Connection getConnection() throws SQLException {
         Connection conn = pool.pollFirst();
-        if (conn == null || !conn.isValid(connTimeout)) {
+        if (!isConnectionValid(conn)) {
             conn = newConnection();
         }
         return conn;
     }
 
-    public void putConnection(Connection conn) {
-        pool.add(conn);
+    public void putConnection(Connection conn, boolean queue) throws SQLException {
+        if (queue) {
+            if (!conn.getAutoCommit()) {
+                conn.rollback();
+                conn.setAutoCommit(true); // default setting
+            }
+            pool.add(conn);
+        } else {
+            conn.close();
+        }
     }
 
     public boolean isConnectionValid(Connection conn) throws SQLException {
