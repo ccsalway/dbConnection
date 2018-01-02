@@ -1,16 +1,17 @@
 package library;
 
 import annotations.Column;
-import annotations.Column;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.sql.SQLException;
 import java.util.*;
 
 public class DataMapper<T> {
 
     private Class clazz;
     private Map<String, Field> fields = new HashMap<>();
+    Map<String, String> errors = new HashMap<>();
 
     public DataMapper(Class clazz) {
         this.clazz = clazz;
@@ -25,26 +26,31 @@ public class DataMapper<T> {
         }
     }
 
-    public List<T> map(List<Map<String, Object>> rows) {
+    public T map(Map<String, Object> row) throws SQLException {
+        try {
+            T dto = (T) clazz.getConstructor().newInstance();
+            for (Map.Entry<String, Object> entity : row.entrySet()) {
+                if (entity.getValue() == null) {
+                    continue;  // Don't set DBNULL
+                }
+                String column = entity.getKey();
+                Field field = fields.get(column);
+                if (field != null) {
+                    field.set(dto, convertInstanceOfObject(entity.getValue()));
+                }
+            }
+            return dto;
+        } catch (IllegalAccessException | InstantiationException | NoSuchMethodException | InvocationTargetException e) {
+            e.printStackTrace();
+            throw new SQLException("Problem with data Mapping. See logs.");
+        }
+    }
+
+    public List<T> map(List<Map<String, Object>> rows) throws SQLException {
         List<T> list = new LinkedList<>();
 
         for (Map<String, Object> row : rows) {
-            try {
-                T dto = (T) clazz.getConstructor().newInstance();
-                for (Map.Entry<String, Object> entity : row.entrySet()) {
-                    if (entity.getValue() == null) {
-                        continue;  // Don't set DBNULL
-                    }
-                    String column = entity.getKey();
-                    Field field = fields.get(column);
-                    if (field != null) {
-                        field.set(dto, convertInstanceOfObject(entity.getValue()));
-                    }
-                }
-                list.add(dto);
-            } catch (IllegalAccessException | InstantiationException | NoSuchMethodException | InvocationTargetException e) {
-                e.printStackTrace();
-            }
+            list.add(map(row));
         }
 
         return list;

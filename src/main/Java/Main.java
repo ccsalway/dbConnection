@@ -1,9 +1,6 @@
 import entity.Product;
 import javafx.util.Pair;
-import library.DataConnection;
-import library.DataSource;
 import library.Loaders;
-import library.DataMapper;
 
 import java.io.IOException;
 import java.sql.SQLException;

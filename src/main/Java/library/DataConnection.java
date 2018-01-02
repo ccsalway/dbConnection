@@ -1,7 +1,5 @@
 package library;
 
-import com.mysql.jdbc.exceptions.jdbc4.CommunicationsException;
-import com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException;
 import javafx.util.Pair;
 
 import java.sql.*;
@@ -124,7 +122,7 @@ public class DataConnection implements AutoCloseable {
                     }
                 }
             }
-        } catch (CommunicationsException | MySQLNonTransientConnectionException e) {
+        } catch (SQLException e) {
             requeue = false;
             throw e;
         }
@@ -142,7 +140,7 @@ public class DataConnection implements AutoCloseable {
             if (!stmnt.execute()) {
                 return stmnt.getUpdateCount();
             }
-        } catch (CommunicationsException | MySQLNonTransientConnectionException e) {
+        } catch (SQLException e) {
             requeue = false;
             throw e;
         }
@@ -172,7 +170,7 @@ public class DataConnection implements AutoCloseable {
                 }
                 rows.add(row);
             }
-        } catch (CommunicationsException | MySQLNonTransientConnectionException e) {
+        } catch (SQLException e) {
             requeue = false;
             throw e;
         }
