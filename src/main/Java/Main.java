@@ -1,5 +1,8 @@
 import entity.Product;
 import javafx.util.Pair;
+import library.DataConnection;
+import library.DataMapper;
+import library.DataSource;
 import library.Loaders;
 
 import java.io.IOException;
@@ -35,19 +38,17 @@ public class Main {
             // connect to database (autocloses)
             try (DataConnection conn = ds1.getConnection()) {
 
-                // create an objectmapper
-                DataMapper<Product> dataMapper = new DataMapper<>(Product.class);
-
                 // fetch a row
-                List<Map<String, Object>> rows = conn.nativeSelect("SELECT * FROM products");
-                List<Product> products = dataMapper.map(rows);
-
-                // display the rows
+                List<Map<String, Object>> rows = conn.nativeSelect("SELECT * FROM table");
                 System.out.println(rows);
 
-                // display it as products
-                for (Product prod : products) {
-                    System.out.println(prod);
+                // map each row to an Entity
+                DataMapper<Product> dataMapper = new DataMapper<>(Product.class);
+                List<Product> products = dataMapper.map(rows);
+
+                // output products
+                for (Product product : products) {
+                    System.out.println(product);
                 }
 
             } catch (Exception e) {
